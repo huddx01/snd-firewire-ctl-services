@@ -492,6 +492,7 @@ impl<O: RmeFfLatterSpecification> RmeFfLatterDspSpecification for O {}
 
 const INPUT_TO_FX_CMD: u8 = 0x01;
 const INPUT_STEREO_LINK_CMD: u8 = 0x02;
+const INPUT_MSPROC_CMD: u8 = 0x05;
 const INPUT_INVERT_PHASE_CMD: u8 = 0x06;
 const INPUT_LINE_GAIN_CMD: u8 = 0x07;
 const INPUT_LINE_LEVEL_CMD: u8 = 0x08;
@@ -582,6 +583,8 @@ fn deserialize_input_nominal_level(level: &LatterInNominalLevel) -> i16 {
 pub struct FfLatterInputState {
     /// Whether to link each pair of left and right ports.
     pub stereo_links: Vec<bool>,
+	/// Whether to enable mid/side processing for analog inputs.
+	pub msproc: Vec<bool>,
     /// Whether to inverse the phase of analog, spdif, and adat inputs.
     pub invert_phases: Vec<bool>,
     /// The gain of analog line input. The value is between 0 and 120 to represent 0.00 dB and 12.00 dB.
@@ -608,6 +611,7 @@ pub trait RmeFfLatterInputSpecification: RmeFfLatterDspSpecification {
     fn create_input_parameters() -> FfLatterInputState {
         FfLatterInputState {
             stereo_links: vec![Default::default(); Self::PHYS_INPUT_COUNT / 2],
+			msproc: vec![Default::default(); Self::PHYS_INPUT_COUNT / 2],
             invert_phases: vec![Default::default(); Self::PHYS_INPUT_COUNT],
             line_gains: vec![Default::default(); Self::LINE_INPUT_COUNT],
             line_levels: vec![Default::default(); Self::LINE_INPUT_COUNT],
@@ -673,6 +677,7 @@ impl<O: RmeFfLatterDspSpecification> RmeFfLatterInputSpecification for O {}
 impl<O: RmeFfLatterInputSpecification> RmeFfCommandParamsSerialize<FfLatterInputState> for O {
     fn serialize_commands(state: &FfLatterInputState) -> Vec<u32> {
         assert_eq!(state.stereo_links.len(), Self::PHYS_INPUT_COUNT / 2);
+		assert_eq!(state.msproc.len(), Self::PHYS_INPUT_COUNT / 2);
         assert_eq!(state.invert_phases.len(), Self::PHYS_INPUT_COUNT);
         assert_eq!(state.line_gains.len(), Self::LINE_INPUT_COUNT);
         assert_eq!(state.line_levels.len(), Self::LINE_INPUT_COUNT);
@@ -685,10 +690,13 @@ impl<O: RmeFfLatterInputSpecification> RmeFfCommandParamsSerialize<FfLatterInput
             .stereo_links
             .iter()
             .enumerate()
-            .for_each(|(i, &link)| {
-                let ch = (i * 2) as u8;
-                cmds.push(create_phys_port_cmd(ch, INPUT_STEREO_LINK_CMD, link as i16));
-            });
+			.for_each(|(i, &link)| {
+				let ch = (i * 2) as u8;
+				cmds.push(create_phys_port_cmd(ch, INPUT_STEREO_LINK_CMD, link as i16));
+				if link {
+					cmds.push(create_phys_port_cmd(ch, INPUT_MSPROC_CMD, state.msproc[i] as i16));
+				}
+			});
 
         state
             .invert_phases
