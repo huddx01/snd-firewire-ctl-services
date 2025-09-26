@@ -128,6 +128,7 @@ const INPUT_LINE_GAIN_NAME: &str = "input:line-gain";
 const INPUT_LINE_LEVEL_NAME: &str = "input:line-level";
 const INPUT_MIC_POWER_NAME: &str = "input:mic-power";
 const INPUT_MIC_INST_NAME: &str = "input:mic-instrument";
+const INPUT_MSPROC_NAME: &str = "input:msproc";
 const INPUT_INVERT_PHASE_NAME: &str = "input:invert-phase";
 
 #[derive(Debug)]
@@ -232,6 +233,11 @@ where
             .add_bool_elems(&elem_id, 1, T::MIC_INPUT_COUNT, true)
             .map(|mut elem_id_list| self.elem_id_list.append(&mut elem_id_list))?;
 
+		let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, INPUT_MSPROC_NAME, 0);
+		card_cntr
+			.add_bool_elems(&elem_id, 1, T::PHYS_INPUT_COUNT / 2, true)
+			.map(|mut elem_id_list| self.elem_id_list.append(&mut elem_id_list))?;
+
         let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, INPUT_INVERT_PHASE_NAME, 0);
         card_cntr
             .add_bool_elems(&elem_id, 1, T::MIC_INPUT_COUNT, true)
@@ -280,6 +286,10 @@ where
                 elem_value.set_bool(&self.params.mic_insts);
                 Ok(true)
             }
+			INPUT_MSPROC_NAME => {
+				elem_value.set_bool(&self.params.msproc);
+				Ok(true)
+			}
             INPUT_INVERT_PHASE_NAME => {
                 elem_value.set_bool(&self.params.invert_phases);
                 Ok(true)
@@ -362,6 +372,16 @@ where
                 debug!(params = ?self.params, ?res);
                 res.map(|_| true)
             }
+			INPUT_MSPROC_NAME => {
+				let mut params = self.params.clone();
+				params.msproc
+					.iter_mut()
+					.zip(elem_value.boolean())
+					.for_each(|(d, s)| *d = s);
+				let res = T::command_partially(req, node, &mut self.params, params, timeout_ms);
+				debug!(params = ?self.params, ?res);
+				res.map(|_| true)
+			}
             INPUT_INVERT_PHASE_NAME => {
                 let mut params = self.params.clone();
                 params
