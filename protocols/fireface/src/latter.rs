@@ -490,6 +490,7 @@ pub trait RmeFfLatterDspSpecification: RmeFfLatterSpecification {
 
 impl<O: RmeFfLatterSpecification> RmeFfLatterDspSpecification for O {}
 
+const INPUT_MUTE_CMD: u8 = 0x00;
 const INPUT_TO_FX_CMD: u8 = 0x01;
 const INPUT_STEREO_LINK_CMD: u8 = 0x02;
 const INPUT_MSPROC_CMD: u8 = 0x05;
@@ -501,6 +502,7 @@ const INPUT_MIC_INST_CMD: u8 = 0x09;
 
 const OUTPUT_VOL_CMD: u8 = 0x00;
 const OUTPUT_STEREO_BALANCE_CMD: u8 = 0x01;
+const OUTPUT_MUTE_CMD: u8 = 0x02;
 const OUTPUT_FROM_FX_CMD: u8 = 0x03;
 const OUTPUT_STEREO_LINK_CMD: u8 = 0x04;
 const OUTPUT_INVERT_PHASE_CMD: u8 = 0x07;
@@ -581,10 +583,12 @@ fn deserialize_input_nominal_level(level: &LatterInNominalLevel) -> i16 {
 /// State of inputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FfLatterInputState {
+    /// Whether to mute each input port.
+    pub mutes: Vec<bool>,
     /// Whether to link each pair of left and right ports.
     pub stereo_links: Vec<bool>,
 	/// Whether to enable mid/side processing for analog inputs.
-	pub msproc: Vec<bool>,
+	pub msprocs: Vec<bool>,
     /// Whether to inverse the phase of analog, spdif, and adat inputs.
     pub invert_phases: Vec<bool>,
     /// The gain of analog line input. The value is between 0 and 120 to represent 0.00 dB and 12.00 dB.
@@ -610,8 +614,9 @@ pub trait RmeFfLatterInputSpecification: RmeFfLatterDspSpecification {
     /// Instantiate input parameters.
     fn create_input_parameters() -> FfLatterInputState {
         FfLatterInputState {
+            mutes: vec![Default::default(); Self::PHYS_INPUT_COUNT],
             stereo_links: vec![Default::default(); Self::PHYS_INPUT_COUNT / 2],
-			msproc: vec![Default::default(); Self::PHYS_INPUT_COUNT / 2],
+            msprocs: vec![Default::default(); Self::PHYS_INPUT_COUNT / 2],
             invert_phases: vec![Default::default(); Self::PHYS_INPUT_COUNT],
             line_gains: vec![Default::default(); Self::LINE_INPUT_COUNT],
             line_levels: vec![Default::default(); Self::LINE_INPUT_COUNT],
@@ -676,8 +681,9 @@ impl<O: RmeFfLatterDspSpecification> RmeFfLatterInputSpecification for O {}
 
 impl<O: RmeFfLatterInputSpecification> RmeFfCommandParamsSerialize<FfLatterInputState> for O {
     fn serialize_commands(state: &FfLatterInputState) -> Vec<u32> {
+        assert_eq!(state.mutes.len(), Self::PHYS_INPUT_COUNT);
         assert_eq!(state.stereo_links.len(), Self::PHYS_INPUT_COUNT / 2);
-		assert_eq!(state.msproc.len(), Self::PHYS_INPUT_COUNT / 2);
+        assert_eq!(state.msprocs.len(), Self::PHYS_INPUT_COUNT / 2);
         assert_eq!(state.invert_phases.len(), Self::PHYS_INPUT_COUNT);
         assert_eq!(state.line_gains.len(), Self::LINE_INPUT_COUNT);
         assert_eq!(state.line_levels.len(), Self::LINE_INPUT_COUNT);
@@ -685,6 +691,11 @@ impl<O: RmeFfLatterInputSpecification> RmeFfCommandParamsSerialize<FfLatterInput
         assert_eq!(state.mic_insts.len(), Self::MIC_INPUT_COUNT);
 
         let mut cmds = Vec::new();
+
+        state.mutes.iter().enumerate().for_each(|(i, &mute)| {
+            let ch = i as u8;
+            cmds.push(create_phys_port_cmd(ch, INPUT_MUTE_CMD, mute as i16));
+        });
 
         state
             .stereo_links
@@ -694,7 +705,7 @@ impl<O: RmeFfLatterInputSpecification> RmeFfCommandParamsSerialize<FfLatterInput
 				let ch = (i * 2) as u8;
 				cmds.push(create_phys_port_cmd(ch, INPUT_STEREO_LINK_CMD, link as i16));
 				if link {
-					cmds.push(create_phys_port_cmd(ch, INPUT_MSPROC_CMD, state.msproc[i] as i16));
+					cmds.push(create_phys_port_cmd(ch, INPUT_MSPROC_CMD, state.msprocs[i] as i16));
 				}
 			});
 
@@ -759,6 +770,8 @@ pub struct FfLatterOutputState {
     pub vols: Vec<i16>,
     /// The balance between left and right. The value is between -100 (0xff9c) and 100 (0x0064).
     pub stereo_balance: Vec<i16>,
+    /// Whether to mute each output port.
+    pub mutes: Vec<bool>,
     /// Whether to link each pair of left and right ports.
     pub stereo_links: Vec<bool>,
     /// Whether to inverse the phase of analog, spdif, and adat outputs.
@@ -795,6 +808,7 @@ pub trait RmeFfLatterOutputSpecification: RmeFfLatterDspSpecification {
         FfLatterOutputState {
             vols: vec![Default::default(); Self::OUTPUT_COUNT],
             stereo_balance: vec![Default::default(); Self::OUTPUT_COUNT / 2],
+            mutes: vec![Default::default(); Self::OUTPUT_COUNT],
             stereo_links: vec![Default::default(); Self::OUTPUT_COUNT / 2],
             invert_phases: vec![Default::default(); Self::OUTPUT_COUNT],
             line_levels: vec![Default::default(); Self::LINE_OUTPUT_COUNT],
@@ -859,6 +873,7 @@ impl<O: RmeFfLatterOutputSpecification> RmeFfCommandParamsSerialize<FfLatterOutp
     fn serialize_commands(state: &FfLatterOutputState) -> Vec<u32> {
         assert_eq!(state.vols.len(), Self::OUTPUT_COUNT);
         assert_eq!(state.stereo_balance.len(), Self::OUTPUT_COUNT / 2);
+        assert_eq!(state.mutes.len(), Self::OUTPUT_COUNT);
         assert_eq!(state.stereo_links.len(), Self::OUTPUT_COUNT / 2);
         assert_eq!(state.invert_phases.len(), Self::OUTPUT_COUNT);
         assert_eq!(state.line_levels.len(), Self::LINE_OUTPUT_COUNT);
@@ -879,7 +894,14 @@ impl<O: RmeFfLatterOutputSpecification> RmeFfCommandParamsSerialize<FfLatterOutp
                 let ch = ch_offset + (i * 2) as u8;
                 cmds.push(create_phys_port_cmd(ch, OUTPUT_STEREO_BALANCE_CMD, balance));
             });
-
+        state
+            .mutes
+            .iter()
+            .enumerate()
+            .for_each(|(i, &mute)| {
+                let ch = ch_offset + i as u8;
+                cmds.push(create_phys_port_cmd(ch, OUTPUT_MUTE_CMD, mute as i16));
+            });
         state
             .stereo_links
             .iter()

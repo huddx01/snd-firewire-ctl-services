@@ -122,7 +122,7 @@ where
         }
     }
 }
-
+const INPUT_MUTE_NAME: &str = "input:mute";
 const INPUT_STEREO_LINK_NAME: &str = "input:stereo-link";
 const INPUT_LINE_GAIN_NAME: &str = "input:line-gain";
 const INPUT_LINE_LEVEL_NAME: &str = "input:line-level";
@@ -195,6 +195,12 @@ where
     }
 
     pub fn load(&mut self, card_cntr: &mut CardCntr) -> Result<(), Error> {
+
+        let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, INPUT_MUTE_NAME, 0);
+        card_cntr
+            .add_bool_elems(&elem_id, 1, T::PHYS_INPUT_COUNT, true)
+            .map(|mut elem_id_list| self.elem_id_list.append(&mut elem_id_list))?;
+
         let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, INPUT_STEREO_LINK_NAME, 0);
         card_cntr
             .add_bool_elems(&elem_id, 1, T::PHYS_INPUT_COUNT / 2, true)
@@ -218,6 +224,7 @@ where
             .iter()
             .map(|l| latter_line_in_nominal_level_to_str(l))
             .collect();
+
         let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, INPUT_LINE_LEVEL_NAME, 0);
         card_cntr
             .add_enum_elems(&elem_id, 1, T::LINE_INPUT_COUNT, &labels, None, true)
@@ -233,10 +240,10 @@ where
             .add_bool_elems(&elem_id, 1, T::MIC_INPUT_COUNT, true)
             .map(|mut elem_id_list| self.elem_id_list.append(&mut elem_id_list))?;
 
-		let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, INPUT_MSPROC_NAME, 0);
-		card_cntr
-			.add_bool_elems(&elem_id, 1, T::PHYS_INPUT_COUNT / 2, true)
-			.map(|mut elem_id_list| self.elem_id_list.append(&mut elem_id_list))?;
+        let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, INPUT_MSPROC_NAME, 0);
+        card_cntr
+            .add_bool_elems(&elem_id, 1, T::PHYS_INPUT_COUNT / 2, true)
+            .map(|mut elem_id_list| self.elem_id_list.append(&mut elem_id_list))?;
 
         let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, INPUT_INVERT_PHASE_NAME, 0);
         card_cntr
@@ -248,6 +255,10 @@ where
 
     pub fn read(&self, elem_id: &ElemId, elem_value: &mut ElemValue) -> Result<bool, Error> {
         match elem_id.name().as_str() {
+            INPUT_MUTE_NAME => {
+                elem_value.set_bool(&self.params.mutes);
+                Ok(true)
+            }
             INPUT_STEREO_LINK_NAME => {
                 elem_value.set_bool(&self.params.stereo_links);
                 Ok(true)
@@ -286,10 +297,10 @@ where
                 elem_value.set_bool(&self.params.mic_insts);
                 Ok(true)
             }
-			INPUT_MSPROC_NAME => {
-				elem_value.set_bool(&self.params.msproc);
-				Ok(true)
-			}
+            INPUT_MSPROC_NAME => {
+                elem_value.set_bool(&self.params.msprocs);
+                Ok(true)
+            }
             INPUT_INVERT_PHASE_NAME => {
                 elem_value.set_bool(&self.params.invert_phases);
                 Ok(true)
@@ -307,6 +318,17 @@ where
         timeout_ms: u32,
     ) -> Result<bool, Error> {
         match elem_id.name().as_str() {
+            INPUT_MUTE_NAME => {
+                let mut params = self.params.clone();
+                params
+                    .mutes
+                    .iter_mut()
+                    .zip(elem_value.boolean())
+                    .for_each(|(d, s)| *d = s);
+                let res = T::command_partially(req, node, &mut self.params, params, timeout_ms);
+                debug!(params = ?self.params, ?res);
+                res.map(|_| true)
+            }
             INPUT_STEREO_LINK_NAME => {
                 let mut params = self.params.clone();
                 params
@@ -372,16 +394,17 @@ where
                 debug!(params = ?self.params, ?res);
                 res.map(|_| true)
             }
-			INPUT_MSPROC_NAME => {
-				let mut params = self.params.clone();
-				params.msproc
-					.iter_mut()
-					.zip(elem_value.boolean())
-					.for_each(|(d, s)| *d = s);
-				let res = T::command_partially(req, node, &mut self.params, params, timeout_ms);
-				debug!(params = ?self.params, ?res);
-				res.map(|_| true)
-			}
+            INPUT_MSPROC_NAME => {
+                let mut params = self.params.clone();
+                params
+                .msprocs
+                .iter_mut()
+                .zip(elem_value.boolean())
+                .for_each(|(d, s)| *d = s);
+                let res = T::command_partially(req, node, &mut self.params, params, timeout_ms);
+                debug!(params = ?self.params, ?res);
+                res.map(|_| true)
+            }
             INPUT_INVERT_PHASE_NAME => {
                 let mut params = self.params.clone();
                 params
@@ -400,6 +423,7 @@ where
 
 const VOL_NAME: &str = "output:volume";
 const STEREO_BALANCE_NAME: &str = "output:stereo-balance";
+const MUTE_NAME: &str = "output:mute";
 const STEREO_LINK_NAME: &str = "output:stereo-link";
 const INVERT_PHASE_NAME: &str = "output:invert-phase";
 const LINE_LEVEL_NAME: &str = "output:line-level";
@@ -480,6 +504,11 @@ where
                 Some(&Vec::<u32>::from(&Self::VOL_TLV)),
                 true,
             )
+            .map(|mut elem_id_list| self.elem_id_list.append(&mut elem_id_list))?;
+
+        let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, MUTE_NAME, 0);
+            card_cntr
+            .add_bool_elems(&elem_id, 1, T::OUTPUT_COUNT, true)
             .map(|mut elem_id_list| self.elem_id_list.append(&mut elem_id_list))?;
 
         let elem_id = ElemId::new_by_name(ElemIfaceType::Mixer, 0, 0, STEREO_BALANCE_NAME, 0);
@@ -590,6 +619,17 @@ where
                     .iter_mut()
                     .zip(elem_value.int())
                     .for_each(|(d, s)| *d = *s as i16);
+                let res = T::command_partially(req, node, &mut self.params, params, timeout_ms);
+                debug!(params = ?self.params, ?res);
+                res.map(|_| true)
+            }
+            MUTE_NAME => {
+                let mut params = self.params.clone();
+                params
+                    .mutes
+                    .iter_mut()
+                    .zip(elem_value.boolean())
+                    .for_each(|(d, s)| *d = s);
                 let res = T::command_partially(req, node, &mut self.params, params, timeout_ms);
                 debug!(params = ?self.params, ?res);
                 res.map(|_| true)
